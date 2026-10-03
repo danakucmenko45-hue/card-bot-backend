@@ -74,25 +74,47 @@ async def crypto_webhook(request: Request):
 async def get_balance(user_id: int):
     return {"balance": user_balances.get(user_id, 0.0)}
 import logging
+import asyncio
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import httpx
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
 
-# Ваш токен Telegram бота
-TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
-
-# Ссылка на ваш мини-апп на Vercel
+# Настройки токенов
+TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
+CRYPTO_BOT_TOKEN = "33325:AAfP4e... [ваш токен crypto bot, если был]" # оставьте ваш или рабочий
 WEBAPP_URL = "https://almaz-shop.vercel.app"
 
-# Включаем логирование
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=TOKEN)
+app = FastAPI()
+bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher(bot)
 
+# Хранилище балансов пользователей (в памяти)
+user_balances = {}
+
+class InvoiceRequest(BaseModel):
+    amount: float
+    user_id: int
+
+@app.get("/")
+def root():
+    return {"status": "Almaz Shop Backend is running!"}
+
+@app.get("/get-balance/{user_id}")
+def get_balance(user_id: int):
+    return {"balance": user_balances.get(user_id, 0.00)}
+
+@app.post("/create-invoice")
+async def create_invoice(data: InvoiceRequest):
+    user_balances[data.user_id] = user_balances.get(data.user_id, 0.00) + data.amount
+    return {"pay_url": "https://t.me/CryptoBot?start=sample_invoice"}
+
+# Обработчик команды /start в боте
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
-    # Создаем инлайн-кнопку для открытия Web App
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
         InlineKeyboardButton(
@@ -101,7 +123,6 @@ async def cmd_start(message: types.Message):
         )
     )
     
-    # Приветственный текст
     welcome_text = (
         f"Привет, {message.from_user.first_name}! 👋\n\n"
         "Добро пожаловать в <b>Almaz Shop</b> — лучший магазин виртуальных карт!\n\n"
@@ -111,6 +132,8 @@ async def cmd_start(message: types.Message):
     
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=keyboard)
 
-if __name__ == '__main__':
-    print("Бот запущен и готов к работе...")
-    executor.start_polling(dp, skip_updates=True)
+# Запуск поллинга бота в фоновом режиме при старте FastAPI
+@app.on_event("startup")
+async def on_startup():
+    asyncio.create_task(dp.start_polling())
+    logging.info("Telegram bot started successfully via polling!")
