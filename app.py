@@ -73,3 +73,44 @@ async def crypto_webhook(request: Request):
 @app.get("/get-balance/{user_id}")
 async def get_balance(user_id: int):
     return {"balance": user_balances.get(user_id, 0.0)}
+import logging
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils import executor
+
+# Ваш токен Telegram бота
+TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
+
+# Ссылка на ваш мини-апп на Vercel
+WEBAPP_URL = "https://almaz-shop.vercel.app"
+
+# Включаем логирование
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher(bot)
+
+@dp.message_handler(commands=['start'])
+async def cmd_start(message: types.Message):
+    # Создаем инлайн-кнопку для открытия Web App
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(
+        InlineKeyboardButton(
+            text="💎 Открыть Almaz Shop", 
+            web_app=WebAppInfo(url=WEBAPP_URL)
+        )
+    )
+    
+    # Приветственный текст
+    welcome_text = (
+        f"Привет, {message.from_user.first_name}! 👋\n\n"
+        "Добро пожаловать в <b>Almaz Shop</b> — лучший магазин виртуальных карт!\n\n"
+        "💳 Покупайте карты любых стран, паки со скидкой и проверяйте их в нашем чекере.\n\n"
+        "Нажмите на кнопку ниже, чтобы открыть магазин:"
+    )
+    
+    await message.answer(welcome_text, parse_mode="HTML", reply_markup=keyboard)
+
+if __name__ == '__main__':
+    print("Бот запущен и готов к работе...")
+    executor.start_polling(dp, skip_updates=True)
