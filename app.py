@@ -5,6 +5,7 @@ from aiocryptopay import AioCryptoPay, Networks
 
 app = FastAPI(title="Crystal Shop Backend")
 
+# Разрешаем запросы с Vercel и других доменов (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,10 +14,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Токен Crypto Pay API
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
-crypto = AioCryptoPay(token=CRYPTO_BOT_TOKEN, network=Networks.MAINNET)
+# Инициализация клиента Crypto Pay (исправлено на Networks.MAIN_NET)
+crypto = AioCryptoPay(token=CRYPTO_BOT_TOKEN, network=Networks.MAIN_NET)
 
+# База данных балансов в памяти
 user_balances = {}
 
 class InvoiceRequest(BaseModel):
@@ -41,6 +45,7 @@ async def create_invoice(data: InvoiceRequest):
         
         raw_url = invoice.bot_invoice_url
         
+        # Корректировка ссылки для открытия в Telegram WebApp
         if "t.me/CryptoPayBot" in raw_url:
             pay_url = raw_url.replace("t.me/CryptoPayBot", "t.me/CryptoBot")
         else:
