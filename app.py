@@ -1,4 +1,3 @@
-import re
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -6,22 +5,22 @@ from aiocryptopay import CryptoPay, Networks
 
 app = FastAPI(title="Crystal Shop Backend")
 
-# 1. Настройка CORS для Vercel
+# Разрешаем запросы с Vercel и других доменов (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Разрешает запросы с вашего сайта на Vercel
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 2. Токен Crypto Pay API
+# Токен Crypto Pay API
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
 # Инициализация клиента Crypto Pay
 crypto = CryptoPay(token=CRYPTO_BOT_TOKEN, network=Networks.MAINNET)
 
-# Временная база данных балансов в памяти
+# База данных балансов в памяти
 user_balances = {}
 
 class InvoiceRequest(BaseModel):
@@ -30,16 +29,14 @@ class InvoiceRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Crystal Shop Backend is running!"}
+    return {"status": "ok", "message": "Backend is running!"}
 
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
-    # Минимальная сумма пополнения — $15
     if data.amount < 15.0:
-        raise HTTPException(status_code=400, detail="Minimum deposit amount is $15")
+        raise HTTPException(status_code=400, detail="Minimum deposit is $15")
 
     try:
-        # Создаем счет в USDT
         invoice = await crypto.create_invoice(
             asset='USDT',
             amount=data.amount,
@@ -48,7 +45,7 @@ async def create_invoice(data: InvoiceRequest):
         
         raw_url = invoice.bot_invoice_url
         
-        # Исправление ссылки для идеального открытия внутри Telegram WebApp
+        # Корректировка ссылки для открытия в Telegram WebApp
         if "t.me/CryptoPayBot" in raw_url:
             pay_url = raw_url.replace("t.me/CryptoPayBot", "t.me/CryptoBot")
         else:
@@ -67,7 +64,6 @@ async def crypto_webhook(request: Request):
     try:
         update = await request.json()
         
-        # Начисление баланса при успешной оплате
         if update.get("update_type") == "invoice_paid":
             payload_data = update.get("payload", {})
             user_id = int(payload_data.get("payload", 0))
@@ -75,7 +71,7 @@ async def crypto_webhook(request: Request):
 
             if user_id > 0:
                 user_balances[user_id] = user_balances.get(user_id, 0.0) + amount_usd
-                print(f"✅ Баланс успешно пополнен: User {user_id} +${amount_usd}")
+                print(f"✅ Баланс пополнен: User {user_id} +${amount_usd}")
 
         return {"ok": True}
     except Exception as e:
