@@ -17,7 +17,7 @@ app.add_middleware(
 # Токен Crypto Pay API
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
-# Инициализация клиента Crypto Pay (AioCryptoPay с заглавной буквой A)
+# Инициализация клиента Crypto Pay (используется AioCryptoPay)
 crypto = AioCryptoPay(token=CRYPTO_BOT_TOKEN, network=Networks.MAINNET)
 
 # База данных балансов в памяти
