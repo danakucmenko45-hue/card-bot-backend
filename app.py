@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from aiocryptopay import CryptoPay, Networks
+from aiocryptopay import AioCryptoPay, Networks
 
 app = FastAPI(title="Crystal Shop Backend")
 
@@ -17,8 +17,8 @@ app.add_middleware(
 # Токен Crypto Pay API
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
-# Инициализация клиента Crypto Pay
-crypto = CryptoPay(token=CRYPTO_BOT_TOKEN, network=Networks.MAINNET)
+# Инициализация клиента Crypto Pay (AioCryptoPay с заглавной буквой A)
+crypto = AioCryptoPay(token=CRYPTO_BOT_TOKEN, network=Networks.MAINNET)
 
 # База данных балансов в памяти
 user_balances = {}
