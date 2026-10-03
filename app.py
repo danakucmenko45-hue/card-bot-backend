@@ -75,24 +75,21 @@ async def get_balance(user_id: int):
     return {"balance": user_balances.get(user_id, 0.0)}
 import logging
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
-import httpx
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
 
-# Настройки токенов
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
-CRYPTO_BOT_TOKEN = "33325:AAfP4e... [ваш токен crypto bot, если был]" # оставьте ваш или рабочий
 WEBAPP_URL = "https://almaz-shop.vercel.app"
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 
-# Хранилище балансов пользователей (в памяти)
 user_balances = {}
 
 class InvoiceRequest(BaseModel):
@@ -112,28 +109,30 @@ async def create_invoice(data: InvoiceRequest):
     user_balances[data.user_id] = user_balances.get(data.user_id, 0.00) + data.amount
     return {"pay_url": "https://t.me/CryptoBot?start=sample_invoice"}
 
-# Обработчик команды /start в боте
-@dp.message_handler(commands=['start'])
+# Обработчик команды /start для aiogram 3.x
+@dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(
-        InlineKeyboardButton(
-            text="💎 Открыть Almaz Shop", 
-            web_app=WebAppInfo(url=WEBAPP_URL)
-        )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💎 Открыть Almaz Shop", 
+                    web_app=WebAppInfo(url=WEBAPP_URL)
+                )
+            ]
+        ]
     )
     
     welcome_text = (
         f"Привет, {message.from_user.first_name}! 👋\n\n"
         "Добро пожаловать в <b>Almaz Shop</b> — лучший магазин виртуальных карт!\n\n"
-        "💳 Покупайте карты любых стран, паки со скидкой и проверяйте их в нашем чекере.\n\n"
         "Нажмите на кнопку ниже, чтобы открыть магазин:"
     )
     
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=keyboard)
 
-# Запуск поллинга бота в фоновом режиме при старте FastAPI
 @app.on_event("startup")
 async def on_startup():
-    asyncio.create_task(dp.start_polling())
-    logging.info("Telegram bot started successfully via polling!")
+    # Запуск поллинга в фоне для aiogram 3.x
+    asyncio.create_task(dp.start_polling(bot))
+    logging.info("Telegram bot started successfully!")
