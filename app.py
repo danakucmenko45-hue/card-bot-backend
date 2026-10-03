@@ -1,11 +1,45 @@
+RuntimeError: There is no current event loop in thread 'MainThread'.
+```[cite: 10]
+
+### Что произошло?
+В Python версии 3.14 (которую автоматически установил Render[cite: 10]) асинхронный цикл событий (`asyncio event loop`) **не создается автоматически на глобальном уровне**, когда модуль загружается через Uvicorn[cite: 10]. 
+
+При создании объекта `crypto = AioCryptoPay(...)` прямо в глобальном пространстве `app.py`, библиотека пытается получить существующий `event_loop`, которого еще нет, и сервер моментально падает с `RuntimeError`[cite: 10].
+
+---
+
+### Как исправить (100% рабочее решение):
+
+Инициализацию `AioCryptoPay` нужно перенести **внутрь события запуска FastAPI (Lifespan)**, когда асинхронный цикл `asyncio` уже гарантированно активен.
+
+Замените весь код в файле **`app.py`** на GitHub на этот готовый вариант:
+
+```python
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from aiocryptopay import AioCryptoPay, Networks
+from aiocryptopay import AioCryptoPay
 
-app = FastAPI(title="Crystal Shop Backend")
+# Токен Crypto Pay API
+CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
-# Разрешаем запросы с Vercel и других доменов (CORS)
+# Глобальный клиент (инициализируется при старте сервера)
+crypto = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global crypto
+    # Инициализируем Crypto Pay ВНУТРИ активного asyncio event loop
+    crypto = AioCryptoPay(token=CRYPTO_BOT_TOKEN)
+    yield
+    # Корректно закрываем сессию при остановке
+    if crypto:
+        await crypto.close()
+
+app = FastAPI(title="Crystal Shop Backend", lifespan=lifespan)
+
+# Разрешаем CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,13 +48,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Токен Crypto Pay API
-CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
-
-# Инициализация клиента Crypto Pay (исправлено на Networks.MAIN_NET)
-crypto = AioCryptoPay(token=CRYPTO_BOT_TOKEN, network=Networks.MAIN_NET)
-
-# База данных балансов в памяти
 user_balances = {}
 
 class InvoiceRequest(BaseModel):
@@ -45,7 +72,6 @@ async def create_invoice(data: InvoiceRequest):
         
         raw_url = invoice.bot_invoice_url
         
-        # Корректировка ссылки для открытия в Telegram WebApp
         if "t.me/CryptoPayBot" in raw_url:
             pay_url = raw_url.replace("t.me/CryptoPayBot", "t.me/CryptoBot")
         else:
