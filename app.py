@@ -1,12 +1,23 @@
+import logging
+import asyncio
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
 
+# Настройки токенов и ссылок
+TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
+WEBAPP_URL = "https://almaz-shop.vercel.app"
 
-app = FastAPI(title="Crystal Shop Backend")
+logging.basicConfig(level=logging.INFO)
 
+app = FastAPI(title="Almaz Shop Backend")
+
+# Настройка CORS, чтобы сайт на Vercel мог обращаться к серверу без ошибок
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,6 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+bot = Bot(token=TELEGRAM_TOKEN)
+dp = Dispatcher()
+
+# Хранилище балансов в памяти
 user_balances = {}
 
 class InvoiceRequest(BaseModel):
@@ -23,12 +38,13 @@ class InvoiceRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Backend is running!"}
+    return {"status": "ok", "message": "Almaz Shop Backend is running!"}
 
+# Эндпоинт создания инвойса через CryptoBot
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
-    if data.amount < 15.0:
-        raise HTTPException(status_code=400, detail="Minimum deposit is $15")
+    if data.amount < 1:
+        raise HTTPException(status_code=400, detail="Minimum deposit is $1")
 
     url = "https://pay.crypt.bot/api/createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN}
@@ -54,6 +70,7 @@ async def create_invoice(data: InvoiceRequest):
         "invoice_id": result.get("invoice_id")
     }
 
+# Вебхук для обработки успешной оплаты
 @app.post("/crypto-webhook")
 async def crypto_webhook(request: Request):
     try:
@@ -72,44 +89,9 @@ async def crypto_webhook(request: Request):
 
 @app.get("/get-balance/{user_id}")
 async def get_balance(user_id: int):
-    return {"balance": user_balances.get(user_id, 0.0)}
-import logging
-import asyncio
-from fastapi import FastAPI
-from pydantic import BaseModel
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
-
-TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
-WEBAPP_URL = "https://almaz-shop.vercel.app"
-
-logging.basicConfig(level=logging.INFO)
-
-app = FastAPI()
-bot = Bot(token=TELEGRAM_TOKEN)
-dp = Dispatcher()
-
-user_balances = {}
-
-class InvoiceRequest(BaseModel):
-    amount: float
-    user_id: int
-
-@app.get("/")
-def root():
-    return {"status": "Almaz Shop Backend is running!"}
-
-@app.get("/get-balance/{user_id}")
-def get_balance(user_id: int):
     return {"balance": user_balances.get(user_id, 0.00)}
 
-@app.post("/create-invoice")
-async def create_invoice(data: InvoiceRequest):
-    user_balances[data.user_id] = user_balances.get(data.user_id, 0.00) + data.amount
-    return {"pay_url": "https://t.me/CryptoBot?start=sample_invoice"}
-
-# Обработчик команды /start для aiogram 3.x
+# Обработчик команды /start в Telegram боте
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(
@@ -131,8 +113,8 @@ async def cmd_start(message: types.Message):
     
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=keyboard)
 
+# Запуск Telegram-бота в фоновом режиме при старте сервера FastAPI
 @app.on_event("startup")
 async def on_startup():
-    # Запуск поллинга в фоне для aiogram 3.x
     asyncio.create_task(dp.start_polling(bot))
-    logging.info("Telegram bot started successfully!")
+    logging.info("Telegram bot and FastAPI server started successfully!")
