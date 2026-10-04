@@ -11,10 +11,11 @@ from sqlalchemy import create_engine, Column, Integer, Float, String, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
+# --- НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 WEBAPP_URL = "https://almaz-shop.vercel.app"
-ADMIN_USER_ID = 7334078827  # ЗАМЕНИТЕ НА СВОЙ TELEGRAM ID ДЛЯ ДОСТУПА В АДМИНКУ
+ADMIN_USER_ID = 512345678  # ⚠️ ЗАМЕНИТЕ НА СВОЙ НАСТОЯЩИЙ TELEGRAM ID (узнать можно у @userinfobot)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -70,7 +71,7 @@ async def root():
 async def get_balance(user_id: int, db: Session = Depends(get_db)):
     user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
     if not user:
-        # Создаем пользователя, если его еще нет в базе
+        # Создаем пользователя в базе, если его еще не было
         user = UserDB(user_id=user_id, balance=0.0)
         db.add(user)
         db.commit()
@@ -128,7 +129,7 @@ async def crypto_webhook(request: Request, db: Session = Depends(get_db)):
                     db.add(user)
                 db.commit()
 
-                # Автоматическое уведомление в Telegram о пополнении
+                # Автоматическое уведомление пользователя в Telegram
                 try:
                     await bot.send_message(
                         user_id, 
@@ -185,7 +186,7 @@ async def cmd_start(message: types.Message):
         ]
     )
     
-    # Если админ пишет /start, можно дополнительно выводить статус
+    # Кнопка админ-панели появляется только у вас
     if message.from_user.id == ADMIN_USER_ID:
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="⚙️ Админ-панель", callback_data="admin_panel")
@@ -199,7 +200,30 @@ async def cmd_start(message: types.Message):
     
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=keyboard)
 
+@dp.callback_query(lambda c: c.data == "admin_panel")
+async def process_admin_panel(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_USER_ID:
+        await callback.answer("У вас нет доступа!", show_alert=True)
+        return
+    
+    db = SessionLocal()
+    total_users = db.query(UserDB).count()
+    all_users = db.query(UserDB).all()
+    total_balance = sum(u.balance for u in all_users)
+    db.close()
+    
+    stats_text = (
+        "⚙️ <b>Панель администратора Almaz Shop</b>\n\n"
+        f"👥 Всего пользователей в базе: <b>{total_users}</b>\n"
+        f"💰 Общая сумма на балансах: <b>${total_balance:.2f}</b>\n\n"
+        "<i>Статистика актуальна на данный момент.</i>"
+    )
+    
+    await callback.message.answer(stats_text, parse_mode="HTML")
+    await callback.answer()
+
 @app.on_event("startup")
 async def on_startup():
     asyncio.create_task(dp.start_polling(bot))
     logging.info("Database and Telegram bot started successfully!")
+    
