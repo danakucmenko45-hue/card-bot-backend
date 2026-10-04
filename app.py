@@ -8,7 +8,6 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-# Настройки токенов и ссылок
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 WEBAPP_URL = "https://almaz-shop.vercel.app"
@@ -17,7 +16,6 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Almaz Shop Backend")
 
-# Настройка CORS, чтобы сайт на Vercel мог обращаться к серверу без ошибок
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,7 +27,6 @@ app.add_middleware(
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# Хранилище балансов в памяти
 user_balances = {}
 
 class InvoiceRequest(BaseModel):
@@ -38,9 +35,8 @@ class InvoiceRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Almaz Shop Backend is running!"}
+    return {"status": "ok", "message": "Almaz Shop Backend is active!"}
 
-# Эндпоинт создания инвойса через CryptoBot
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
     if data.amount < 1:
@@ -54,11 +50,17 @@ async def create_invoice(data: InvoiceRequest):
         "payload": str(data.user_id)
     }
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload, headers=headers)
-        res_data = response.json()
+    try:
+        # Увеличенный таймаут (30 секунд), чтобы запрос не обрывался при пробуждении сервера
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            res_data = response.json()
+    except Exception as e:
+        logging.error(f"CryptoBot connection error: {e}")
+        raise HTTPException(status_code=500, detail="Payment gateway timeout, please try again.")
 
     if not res_data.get("ok"):
+        logging.error(f"CryptoBot API returned error: {res_data}")
         raise HTTPException(status_code=500, detail="CryptoBot API Error")
 
     result = res_data["result"]
@@ -70,7 +72,6 @@ async def create_invoice(data: InvoiceRequest):
         "invoice_id": result.get("invoice_id")
     }
 
-# Вебхук для обработки успешной оплаты
 @app.post("/crypto-webhook")
 async def crypto_webhook(request: Request):
     try:
@@ -81,7 +82,7 @@ async def crypto_webhook(request: Request):
             amount_usd = float(payload_data.get("amount", 0.0))
 
             if user_id > 0:
-                user_balances[user_id] = user_balances.get(user_id, 0.0) + amount_usd
+                user_balances[user_id] = user_balances.get(user_id, 0.00) + amount_usd
 
         return {"ok": True}
     except Exception as e:
@@ -91,7 +92,6 @@ async def crypto_webhook(request: Request):
 async def get_balance(user_id: int):
     return {"balance": user_balances.get(user_id, 0.00)}
 
-# Обработчик команды /start в Telegram боте
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(
@@ -107,13 +107,11 @@ async def cmd_start(message: types.Message):
     
     welcome_text = (
         f"Привет, {message.from_user.first_name}! 👋\n\n"
-        "Добро пожаловать в <b>Almaz Shop</b> — лучший магазин виртуальных карт!\n\n"
         "Нажмите на кнопку ниже, чтобы открыть магазин:"
     )
     
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=keyboard)
 
-# Запуск Telegram-бота в фоновом режиме при старте сервера FastAPI
 @app.on_event("startup")
 async def on_startup():
     asyncio.create_task(dp.start_polling(bot))
