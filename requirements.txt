@@ -4,3 +4,4 @@ uvicorn
 requests
 aiocryptopay
 httpx
+sqlalchemy
