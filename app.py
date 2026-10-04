@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker, Session
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 WEBAPP_URL = "https://almaz-shop.vercel.app"
-ADMIN_USER_ID = 512345678  # ⚠️ ЗАМЕНИТЕ НА СВОЙ НАСТОЯЩИЙ TELEGRAM ID (узнать можно у @userinfobot)
+ADMIN_USER_ID = 7334078827  # ⚠️ ЗАМЕНИТЕ НА СВОЙ НАСТОЯЩИЙ TELEGRAM ID (узнать можно у @userinfobot)
 
 logging.basicConfig(level=logging.INFO)
 
