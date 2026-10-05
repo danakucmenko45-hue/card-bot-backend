@@ -1,7 +1,7 @@
-aiogram
 fastapi
 uvicorn
-requests
-aiocryptopay
+aiogram
 httpx
 sqlalchemy
+aiosqlite
+pydantic
