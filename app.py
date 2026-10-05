@@ -9,8 +9,8 @@ from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -24,9 +24,12 @@ CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 WEBAPP_URL = "https://almaz-shop.vercel.app"
 ADMIN_USER_ID = 7334078827
 
+# Курс конвертации: Сколько Звёзд даётся за 1 USDT (50 Stars = 1.00$)
+STARS_PER_USDT = 50
+
 logging.basicConfig(level=logging.INFO)
 
-# --- 2. БАЗА ДАННЫХ (Стандартный SQLite без greenlet) ---
+# --- 2. БАЗА ДАННЫХ (Надежный SQLite без сторонних зависимостей) ---
 DATABASE_URL = "sqlite:///./almaz_shop.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -41,7 +44,7 @@ class UserDB(Base):
 
 class TransactionDB(Base):
     __tablename__ = "transactions"
-    invoice_id = Column(BigInteger, primary_key=True, index=True)
+    invoice_id = Column(String, primary_key=True, index=True)
     user_id = Column(BigInteger, nullable=False)
     amount = Column(Float, nullable=False)
     processed = Column(Boolean, default=True)
@@ -58,7 +61,7 @@ def get_db():
         db.close()
 
 
-# --- 3. ИНИЦИАЛИЗАЦИЯ БОТА И ДИСПЕТЧЕРА ---
+# --- 3. ИНИЦИАЛИЗАЦИЯ БОТА И ДИСПЕТЧЕРА (До хендлеров!) ---
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
@@ -71,9 +74,9 @@ class AdminStates(StatesGroup):
 # --- 4. FASTAPI С LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Запуск бота в фоновом режиме
+    # Фоновый запуск бота
     polling_task = asyncio.create_task(dp.start_polling(bot))
-    logging.info("✅ Telegram бот успешно запущен!")
+    logging.info("✅ Бот и платежный сервер Almaz Shop успешно запущены!")
 
     yield
 
@@ -98,13 +101,18 @@ class InvoiceRequest(BaseModel):
     user_id: int
 
 
+class StarsInvoiceRequest(BaseModel):
+    amount_usd: float
+    user_id: int
+
+
 class AdminActionRequest(BaseModel):
     admin_id: int
     target_user_id: int
     amount: float
 
 
-# --- 6. API ЭНДПОИНТЫ ---
+# --- 6. API ЭНДПОИНТЫ (FASTAPI) ---
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Almaz Shop Backend Active"}
@@ -122,6 +130,7 @@ async def get_balance(user_id: int, db: Session = Depends(get_db)):
     return {"balance": user.balance}
 
 
+# Пополнение через CryptoBot (USDT)
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -157,6 +166,31 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
+# Пополнение через Telegram Stars (Звёзды)
+@app.post("/create-stars-invoice")
+async def create_stars_invoice(data: StarsInvoiceRequest):
+    if data.amount_usd < 0.5:
+        raise HTTPException(status_code=400, detail="Минимальная сумма пополнения: $0.50")
+
+    stars_count = int(data.amount_usd * STARS_PER_USDT)
+    if stars_count < 1:
+        stars_count = 1
+
+    try:
+        invoice_link = await bot.create_invoice_link(
+            title="Пополнение баланса Almaz Shop",
+            description=f"Пополнение личного счета на ${data.amount_usd:.2f} USDT ({stars_count} ⭐️)",
+            payload=f"stars_{data.user_id}_{data.amount_usd}",
+            currency="XTR",
+            prices=[LabeledPrice(label="Пополнение USDT", amount=stars_count)]
+        )
+        return {"pay_url": invoice_link, "stars_amount": stars_count}
+    except Exception as e:
+        logging.error(f"Ошибка создания Stars счета: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка генерации счета Telegram Stars")
+
+
+# Вебхук CryptoBot
 @app.post("/crypto-webhook")
 async def crypto_webhook(
     request: Request,
@@ -175,11 +209,11 @@ async def crypto_webhook(
 
     if update.get("update_type") == "invoice_paid":
         payload_data = update.get("payload", {})
-        invoice_id = int(payload_data.get("invoice_id", 0))
+        invoice_id = str(payload_data.get("invoice_id", "0"))
         user_id = int(payload_data.get("payload", 0))
         amount_usd = float(payload_data.get("amount", 0.0))
 
-        if user_id > 0 and invoice_id > 0:
+        if user_id > 0 and invoice_id != "0":
             tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == invoice_id).first()
             if tx_check:
                 return {"ok": True, "message": "Already processed"}
@@ -199,7 +233,7 @@ async def crypto_webhook(
             try:
                 await bot.send_message(
                     user_id,
-                    f"✅ <b>Баланс успешно пополнен!</b>\nЗачислено: <b>${amount_usd:.2f}</b> 💎",
+                    f"✅ <b>Баланс успешно пополнен через CryptoBot!</b>\nЗачислено: <b>${amount_usd:.2f} USDT</b> 💎",
                     parse_mode="HTML"
                 )
             except Exception as err:
@@ -208,6 +242,7 @@ async def crypto_webhook(
     return {"ok": True}
 
 
+# Изменение баланса через админку API
 @app.post("/admin/set-balance")
 async def admin_set_balance(data: AdminActionRequest, db: Session = Depends(get_db)):
     if data.admin_id != ADMIN_USER_ID:
@@ -224,7 +259,59 @@ async def admin_set_balance(data: AdminActionRequest, db: Session = Depends(get_
     return {"status": "success", "new_balance": user.balance}
 
 
-# --- 7. ХЕНДЛЕРЫ ТЕЛЕГРАМ БОТА ---
+# --- 7. ОБРАБОТКА ОПЛАТЫ TELEGRAM STARS ---
+@dp.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+
+@dp.message(F.successful_payment)
+async def process_successful_payment(message: types.Message):
+    payment = message.successful_payment
+    payload = payment.invoice_payload
+
+    if payload.startswith("stars_"):
+        parts = payload.split("_")
+        user_id = int(parts[1])
+        amount_usd = float(parts[2])
+        charge_id = payment.telegram_payment_charge_id
+
+        db = SessionLocal()
+        try:
+            tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == charge_id).first()
+            if not tx_check:
+                new_tx = TransactionDB(invoice_id=charge_id, user_id=user_id, amount=amount_usd)
+                db.add(new_tx)
+
+                user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                if user:
+                    user.balance += amount_usd
+                else:
+                    user = UserDB(user_id=user_id, balance=amount_usd)
+                    db.add(user)
+
+                db.commit()
+
+                await message.answer(
+                    f"🌟 <b>Оплата Telegram Stars прошла успешно!</b>\n\n"
+                    f"Списано: <b>{payment.total_amount} ⭐️</b>\n"
+                    f"Зачислено на счет: <b>${amount_usd:.2f} USDT</b> 💎",
+                    parse_mode="HTML"
+                )
+
+                await bot.send_message(
+                    ADMIN_USER_ID,
+                    f"💰 <b>Новое пополнение Stars!</b>\n\n"
+                    f"Пользователь: <code>{user_id}</code>\n"
+                    f"Получено: <b>{payment.total_amount} Stars ⭐️</b>\n"
+                    f"Зачислено клиенту: <b>${amount_usd:.2f} USDT</b>",
+                    parse_mode="HTML"
+                )
+        finally:
+            db.close()
+
+
+# --- 8. ХЕНДЛЕРЫ ТЕЛЕГРАМ БОТА ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
