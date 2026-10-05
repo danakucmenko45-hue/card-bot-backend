@@ -15,12 +15,10 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from sqlalchemy import Column, Float, String, BigInteger, Boolean
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.future import select
+from sqlalchemy import create_engine, Column, Float, String, BigInteger, Boolean
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
-# --- 1. НАСТРОЙКИ И КОНСТАНТЫ ---
+# --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 WEBAPP_URL = "https://almaz-shop.vercel.app"
@@ -28,10 +26,10 @@ ADMIN_USER_ID = 7334078827
 
 logging.basicConfig(level=logging.INFO)
 
-# --- 2. БАЗА ДАННЫХ (Async SQLite) ---
-DATABASE_URL = "sqlite+aiosqlite:///./almaz_shop.db"
-engine = create_async_engine(DATABASE_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+# --- 2. БАЗА ДАННЫХ (Стандартный SQLite без greenlet) ---
+DATABASE_URL = "sqlite:///./almaz_shop.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
@@ -49,32 +47,33 @@ class TransactionDB(Base):
     processed = Column(Boolean, default=True)
 
 
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
+Base.metadata.create_all(bind=engine)
 
 
-# --- 3. ИНИЦИАЛИЗАЦИЯ БОТА И ДИСПЕТЧЕРА (Строго до хендлеров!) ---
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# --- 3. ИНИЦИАЛИЗАЦИЯ БОТА И ДИСПЕТЧЕРА ---
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
 
-# Состояния для FSM (выдача баланса пользователю)
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_amount = State()
 
 
-# --- 4. FASTAPI И LIFESPAN ---
+# --- 4. FASTAPI С LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Создание таблиц при запуске
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    # Запуск фонового поллинга Telegram бота
+    # Запуск бота в фоновом режиме
     polling_task = asyncio.create_task(dp.start_polling(bot))
-    logging.info("✅ База данных подключена, Telegram бот успешно запущен!")
+    logging.info("✅ Telegram бот успешно запущен!")
 
     yield
 
@@ -105,22 +104,20 @@ class AdminActionRequest(BaseModel):
     amount: float
 
 
-# --- 6. API ЭНДПОИНТЫ (FASTAPI) ---
+# --- 6. API ЭНДПОИНТЫ ---
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Almaz Shop Backend Active"}
 
 
 @app.get("/get-balance/{user_id}")
-async def get_balance(user_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(UserDB).where(UserDB.user_id == user_id))
-    user = result.scalars().first()
-
+async def get_balance(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
     if not user:
         user = UserDB(user_id=user_id, balance=0.0)
         db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        db.commit()
+        db.refresh(user)
 
     return {"balance": user.balance}
 
@@ -164,11 +161,10 @@ async def create_invoice(data: InvoiceRequest):
 async def crypto_webhook(
     request: Request,
     crypto_pay_api_signature: str = Header(None),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     body_bytes = await request.body()
 
-    # Проверка подлинности HMAC подписи CryptoBot
     if CRYPTO_BOT_TOKEN and crypto_pay_api_signature:
         secret = hashlib.sha256(CRYPTO_BOT_TOKEN.encode()).digest()
         check_signature = hmac.new(secret, body_bytes, hashlib.sha256).hexdigest()
@@ -184,23 +180,21 @@ async def crypto_webhook(
         amount_usd = float(payload_data.get("amount", 0.0))
 
         if user_id > 0 and invoice_id > 0:
-            tx_check = await db.execute(select(TransactionDB).where(TransactionDB.invoice_id == invoice_id))
-            if tx_check.scalars().first():
+            tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == invoice_id).first()
+            if tx_check:
                 return {"ok": True, "message": "Already processed"}
 
             new_tx = TransactionDB(invoice_id=invoice_id, user_id=user_id, amount=amount_usd)
             db.add(new_tx)
 
-            user_res = await db.execute(select(UserDB).where(UserDB.user_id == user_id))
-            user = user_res.scalars().first()
-
+            user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
             if user:
                 user.balance += amount_usd
             else:
                 user = UserDB(user_id=user_id, balance=amount_usd)
                 db.add(user)
 
-            await db.commit()
+            db.commit()
 
             try:
                 await bot.send_message(
@@ -215,20 +209,18 @@ async def crypto_webhook(
 
 
 @app.post("/admin/set-balance")
-async def admin_set_balance(data: AdminActionRequest, db: AsyncSession = Depends(get_db)):
+async def admin_set_balance(data: AdminActionRequest, db: Session = Depends(get_db)):
     if data.admin_id != ADMIN_USER_ID:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    res = await db.execute(select(UserDB).where(UserDB.user_id == data.target_user_id))
-    user = res.scalars().first()
-
+    user = db.query(UserDB).filter(UserDB.user_id == data.target_user_id).first()
     if not user:
         user = UserDB(user_id=data.target_user_id, balance=data.amount)
         db.add(user)
     else:
         user.balance = data.amount
 
-    await db.commit()
+    db.commit()
     return {"status": "success", "new_balance": user.balance}
 
 
@@ -267,16 +259,16 @@ async def process_admin_panel(callback: types.CallbackQuery):
         await callback.answer("⛔ Доступ запрещен!", show_alert=True)
         return
 
-    async with AsyncSessionLocal() as session:
-        users_res = await session.execute(select(UserDB))
-        all_users = users_res.scalars().all()
-
-        admin_res = await session.execute(select(UserDB).where(UserDB.user_id == ADMIN_USER_ID))
-        admin_user = admin_res.scalars().first()
+    db = SessionLocal()
+    try:
+        all_users = db.query(UserDB).all()
+        admin_user = db.query(UserDB).filter(UserDB.user_id == ADMIN_USER_ID).first()
         admin_balance = admin_user.balance if admin_user else 0.0
 
         total_users = len(all_users)
         total_balance = sum(u.balance for u in all_users)
+    finally:
+        db.close()
 
     admin_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -317,17 +309,17 @@ async def process_add_self_balance(callback: types.CallbackQuery):
 
     add_amount = 10.0 if callback.data == "add_self_10" else 100.0
 
-    async with AsyncSessionLocal() as session:
-        res = await session.execute(select(UserDB).where(UserDB.user_id == ADMIN_USER_ID))
-        user = res.scalars().first()
-
+    db = SessionLocal()
+    try:
+        user = db.query(UserDB).filter(UserDB.user_id == ADMIN_USER_ID).first()
         if not user:
             user = UserDB(user_id=ADMIN_USER_ID, balance=add_amount)
-            session.add(user)
+            db.add(user)
         else:
             user.balance += add_amount
-
-        await session.commit()
+        db.commit()
+    finally:
+        db.close()
 
     await callback.answer(f"✅ Зачислено +${add_amount:.0f} USDT!", show_alert=True)
     await process_admin_panel(callback)
@@ -372,17 +364,17 @@ async def process_input_amount(message: types.Message, state: FSMContext):
     data = await state.get_data()
     target_id = data["target_user_id"]
 
-    async with AsyncSessionLocal() as session:
-        res = await session.execute(select(UserDB).where(UserDB.user_id == target_id))
-        user = res.scalars().first()
-
+    db = SessionLocal()
+    try:
+        user = db.query(UserDB).filter(UserDB.user_id == target_id).first()
         if not user:
             user = UserDB(user_id=target_id, balance=amount)
-            session.add(user)
+            db.add(user)
         else:
             user.balance = amount
-
-        await session.commit()
+        db.commit()
+    finally:
+        db.close()
 
     await state.clear()
     await message.answer(f"✅ Баланс пользователя <code>{target_id}</code> изменен на **${amount:.2f} USDT**!", parse_mode="HTML")
