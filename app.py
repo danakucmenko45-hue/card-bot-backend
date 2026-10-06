@@ -21,7 +21,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
-WEBAPP_URL = "https://almaz-shop.vercel.app"
+WEBAPP_URL = "https://almaz-shop-mini-app-59h1.vercel.app"
 ADMIN_USER_ID = 7334078827
 
 # Курс конвертации: Сколько Звёзд даётся за 1 USDT (50 Stars = 1.00$)
