@@ -2,7 +2,6 @@ import os
 import hmac
 import hashlib
 import logging
-import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
@@ -23,6 +22,11 @@ TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
 ADMIN_USER_ID = 7334078827
+
+# Твоя реальная ссылка с Render
+BACKEND_URL = "https://card-bot-backend.onrender.com"
+WEBHOOK_PATH = f"/webhook/telegram"
+WEBHOOK_URL = f"{BACKEND_URL}{WEBHOOK_PATH}"
 
 # Курс конвертации: Сколько Звёзд даётся за 1 USDT (50 Stars = 1.00$)
 STARS_PER_USDT = 50
@@ -71,22 +75,25 @@ class AdminStates(StatesGroup):
     waiting_for_amount = State()
 
 
-# --- 4. FASTAPI С LIFESPAN ---
+# --- 4. FASTAPI С LIFESPAN (WEBHOOK SETUP) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Сбрасываем вебхуки и зависшие сессии перед запуском поллинга
+    # Устанавливаем вебхук в Telegram при запуске приложения
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
-    except Exception:
-        pass
-
-    polling_task = asyncio.create_task(dp.start_polling(bot))
-    logging.info("✅ Бот и платежный сервер Almaz Shop успешно запущены!")
+        await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+        logging.info(f"✅ Вебхук Telegram успешно установлен: {WEBHOOK_URL}")
+    except Exception as e:
+        logging.error(f"❌ Ошибка установки вебхука: {e}")
 
     yield
 
-    polling_task.cancel()
+    # Удаляем вебхук и закрываем сессию при выключении
+    try:
+        await bot.delete_webhook()
+    except Exception:
+        pass
     await bot.session.close()
+    logging.info("🛑 Сервер и бот остановлены.")
 
 
 app = FastAPI(title="Almaz Shop Backend", lifespan=lifespan)
@@ -125,7 +132,20 @@ class AdminActionRequest(BaseModel):
 # --- 6. API ЭНДПОИНТЫ (FASTAPI) ---
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Almaz Shop Backend Active"}
+    return {"status": "ok", "message": "Almaz Shop Backend Active (Webhook Mode)"}
+
+
+# Эндпоинт для приема мгновенных апдейтов от Telegram
+@app.post(WEBHOOK_PATH)
+async def telegram_webhook(request: Request):
+    try:
+        json_data = await request.json()
+        update = types.Update.model_validate(json_data, context={"bot": bot})
+        await dp.feed_update(bot, update)
+        return {"status": "ok"}
+    except Exception as e:
+        logging.error(f"Ошибка обработки вебхука Telegram: {e}")
+        return {"status": "error"}
 
 
 @app.get("/get-balance/{user_id}")
@@ -176,7 +196,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Моментальная проверка оплаты (вызывается из WebApp при нажатии кнопки проверки)
+# Моментальная проверка оплаты
 @app.post("/check-invoice")
 async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)):
     import httpx
@@ -196,7 +216,7 @@ async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Счет не найден")
 
     invoice_info = res_data["result"]["items"][0]
-    status = invoice_info.get("status")  # active / paid / expired
+    status = invoice_info.get("status")
     amount_usd = float(invoice_info.get("amount", 0.0))
     str_invoice_id = str(data.invoice_id)
 
@@ -232,7 +252,7 @@ async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)
     return {"status": "active"}
 
 
-# Пополнение через Telegram Stars (Звёзды)
+# Пополнение через Telegram Stars
 @app.post("/create-stars-invoice")
 async def create_stars_invoice(data: StarsInvoiceRequest):
     if data.amount_usd < 0.5:
@@ -256,7 +276,7 @@ async def create_stars_invoice(data: StarsInvoiceRequest):
         raise HTTPException(status_code=500, detail="Ошибка генерации счета Telegram Stars")
 
 
-# Резервный вебхук CryptoBot
+# Вебхук CryptoBot
 @app.post("/crypto-webhook")
 async def crypto_webhook(
     request: Request,
