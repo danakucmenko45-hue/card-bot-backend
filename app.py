@@ -326,7 +326,7 @@ async def admin_set_balance(data: AdminActionRequest, db: Session = Depends(get_
     return {"status": "success", "new_balance": user.balance}
 
 
-# --- 7. ОБРАБОТКА ОПЛАТЫ TELEGRAM STARS (Исправлено и усилено) ---
+# --- 7. ОБРАБОТКА ОПЛАТЫ TELEGRAM STARS ---
 @dp.pre_checkout_query()
 async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
