@@ -29,7 +29,7 @@ STARS_PER_USDT = 50
 
 logging.basicConfig(level=logging.INFO)
 
-# --- 2. БАЗА ДАННЫХ (Надежный SQLite без сторонних зависимостей) ---
+# --- 2. БАЗА ДАННЫХ ---
 DATABASE_URL = "sqlite:///./almaz_shop.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -61,7 +61,7 @@ def get_db():
         db.close()
 
 
-# --- 3. ИНИЦИАЛИЗАЦИЯ БОТА И ДИСПЕТЧЕРА (До хендлеров!) ---
+# --- 3. ИНИЦИАЛИЗАЦИЯ БОТА И ДИСПЕТЧЕРА ---
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
@@ -74,7 +74,6 @@ class AdminStates(StatesGroup):
 # --- 4. FASTAPI С LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Фоновый запуск бота
     polling_task = asyncio.create_task(dp.start_polling(bot))
     logging.info("✅ Бот и платежный сервер Almaz Shop успешно запущены!")
 
@@ -98,6 +97,11 @@ app.add_middleware(
 # --- 5. PYDANTIC СХЕМЫ ---
 class InvoiceRequest(BaseModel):
     amount: float
+    user_id: int
+
+
+class CheckInvoiceRequest(BaseModel):
+    invoice_id: int
     user_id: int
 
 
@@ -130,11 +134,11 @@ async def get_balance(user_id: int, db: Session = Depends(get_db)):
     return {"balance": user.balance}
 
 
-# Пополнение через CryptoBot (USDT)
+# Создание счета CryptoBot (Минимум $12)
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
-    if data.amount < 1.0:
-        raise HTTPException(status_code=400, detail="Минимальная сумма пополнения: $1")
+    if data.amount < 12.0:
+        raise HTTPException(status_code=400, detail="Минимальная сумма пополнения: $12")
 
     import httpx
     url = "https://pay.crypt.bot/api/createInvoice"
@@ -166,6 +170,66 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
+# Моментальная проверка оплаты (вызывается из WebApp при нажатии кнопки проверки)
+@app.post("/check-invoice")
+async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)):
+    import httpx
+    url = "https://pay.crypt.bot/api/getInvoices"
+    headers = {"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN}
+    params = {"invoice_ids": data.invoice_id}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url, params=params, headers=headers)
+            res_data = response.json()
+    except Exception as e:
+        logging.error(f"CryptoBot Check Error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка связи с платежной системой")
+
+    if not res_data.get("ok") or not res_data.get("result", {}).get("items"):
+        raise HTTPException(status_code=404, detail="Счет не найден")
+
+    invoice_info = res_data["result"]["items"][0]
+    status = invoice_info.get("status") # active / paid / expired
+    amount_usd = float(invoice_info.get("amount", 0.0))
+    str_invoice_id = str(data.invoice_id)
+
+    if status == "paid":
+        # Проверяем, не был ли этот счет уже засчитан ранее
+        tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == str_invoice_id).first()
+        if not tx_check:
+            # Записываем транзакцию
+            new_tx = TransactionDB(invoice_id=str_invoice_id, user_id=data.user_id, amount=amount_usd)
+            db.add(new_tx)
+
+            # Начисляем баланс
+            user = db.query(UserDB).filter(UserDB.user_id == data.user_id).first()
+            if user:
+                user.balance += amount_usd
+            else:
+                user = UserDB(user_id=data.user_id, balance=amount_usd)
+                db.add(user)
+
+            db.commit()
+
+            # Уведомляем пользователя в боте
+            try:
+                await bot.send_message(
+                    data.user_id,
+                    f"✅ <b>Оплата успешно подтверждена!</b>\nЗачислено на баланс: <b>${amount_usd:.2f} USDT</b> 💎",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+        return {"status": "paid", "amount": amount_usd}
+    
+    elif status == "expired":
+        return {"status": "expired"}
+    
+    return {"status": "active"}
+
+
 # Пополнение через Telegram Stars (Звёзды)
 @app.post("/create-stars-invoice")
 async def create_stars_invoice(data: StarsInvoiceRequest):
@@ -190,7 +254,7 @@ async def create_stars_invoice(data: StarsInvoiceRequest):
         raise HTTPException(status_code=500, detail="Ошибка генерации счета Telegram Stars")
 
 
-# Вебхук CryptoBot
+# Резервный вебхук CryptoBot (на случай задержек сети)
 @app.post("/crypto-webhook")
 async def crypto_webhook(
     request: Request,
@@ -215,29 +279,27 @@ async def crypto_webhook(
 
         if user_id > 0 and invoice_id != "0":
             tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == invoice_id).first()
-            if tx_check:
-                return {"ok": True, "message": "Already processed"}
+            if not tx_check:
+                new_tx = TransactionDB(invoice_id=invoice_id, user_id=user_id, amount=amount_usd)
+                db.add(new_tx)
 
-            new_tx = TransactionDB(invoice_id=invoice_id, user_id=user_id, amount=amount_usd)
-            db.add(new_tx)
+                user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                if user:
+                    user.balance += amount_usd
+                else:
+                    user = UserDB(user_id=user_id, balance=amount_usd)
+                    db.add(user)
 
-            user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
-            if user:
-                user.balance += amount_usd
-            else:
-                user = UserDB(user_id=user_id, balance=amount_usd)
-                db.add(user)
+                db.commit()
 
-            db.commit()
-
-            try:
-                await bot.send_message(
-                    user_id,
-                    f"✅ <b>Баланс успешно пополнен через CryptoBot!</b>\nЗачислено: <b>${amount_usd:.2f} USDT</b> 💎",
-                    parse_mode="HTML"
-                )
-            except Exception as err:
-                logging.warning(f"Ошибка отправки сообщения пользователю {user_id}: {err}")
+                try:
+                    await bot.send_message(
+                        user_id,
+                        f"✅ <b>Баланс успешно пополнен через CryptoBot!</b>\nЗачислено: <b>${amount_usd:.2f} USDT</b> 💎",
+                        parse_mode="HTML"
+                    )
+                except Exception as err:
+                    logging.warning(f"Ошибка отправки сообщения пользователю {user_id}: {err}")
 
     return {"ok": True}
 
@@ -438,7 +500,7 @@ async def process_input_user_id(message: types.Message, state: FSMContext):
 
 
 @dp.message(AdminStates.waiting_for_amount)
-async def process_input_amount(message: types.Message, state: FSMContext):
+async def process_input_amount(message: types.Message, state: `FSMContext`): # type: ignore
     if message.from_user.id != ADMIN_USER_ID:
         return
 
