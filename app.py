@@ -74,6 +74,12 @@ class AdminStates(StatesGroup):
 # --- 4. FASTAPI С LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Сбрасываем вебхуки и зависшие сессии перед запуском поллинга
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        pass
+
     polling_task = asyncio.create_task(dp.start_polling(bot))
     logging.info("✅ Бот и платежный сервер Almaz Shop успешно запущены!")
 
@@ -250,7 +256,7 @@ async def create_stars_invoice(data: StarsInvoiceRequest):
         raise HTTPException(status_code=500, detail="Ошибка генерации счета Telegram Stars")
 
 
-# Резервный вебхук CryptoBot (на случай задержек сети)
+# Резервный вебхук CryptoBot
 @app.post("/crypto-webhook")
 async def crypto_webhook(
     request: Request,
@@ -270,7 +276,10 @@ async def crypto_webhook(
     if update.get("update_type") == "invoice_paid":
         payload_data = update.get("payload", {})
         invoice_id = str(payload_data.get("invoice_id", "0"))
-        user_id = int(payload_data.get("payload", 0))
+        try:
+            user_id = int(payload_data.get("payload", 0))
+        except ValueError:
+            user_id = 0
         amount_usd = float(payload_data.get("amount", 0.0))
 
         if user_id > 0 and invoice_id != "0":
@@ -317,7 +326,7 @@ async def admin_set_balance(data: AdminActionRequest, db: Session = Depends(get_
     return {"status": "success", "new_balance": user.balance}
 
 
-# --- 7. ОБРАБОТКА ОПЛАТЫ TELEGRAM STARS ---
+# --- 7. ОБРАБОТКА ОПЛАТЫ TELEGRAM STARS (Исправлено и усилено) ---
 @dp.pre_checkout_query()
 async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
@@ -329,44 +338,47 @@ async def process_successful_payment(message: types.Message):
     payload = payment.invoice_payload
 
     if payload.startswith("stars_"):
-        parts = payload.split("_")
-        user_id = int(parts[1])
-        amount_usd = float(parts[2])
-        charge_id = payment.telegram_payment_charge_id
-
-        db = SessionLocal()
         try:
-            tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == charge_id).first()
-            if not tx_check:
-                new_tx = TransactionDB(invoice_id=charge_id, user_id=user_id, amount=amount_usd)
-                db.add(new_tx)
+            parts = payload.split("_")
+            user_id = int(parts[1])
+            amount_usd = float(parts[2])
+            charge_id = payment.telegram_payment_charge_id
 
-                user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
-                if user:
-                    user.balance += amount_usd
-                else:
-                    user = UserDB(user_id=user_id, balance=amount_usd)
-                    db.add(user)
+            db = SessionLocal()
+            try:
+                tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == charge_id).first()
+                if not tx_check:
+                    new_tx = TransactionDB(invoice_id=charge_id, user_id=user_id, amount=amount_usd)
+                    db.add(new_tx)
 
-                db.commit()
+                    user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if user:
+                        user.balance += amount_usd
+                    else:
+                        user = UserDB(user_id=user_id, balance=amount_usd)
+                        db.add(user)
 
-                await message.answer(
-                    f"🌟 <b>Оплата Telegram Stars прошла успешно!</b>\n\n"
-                    f"Списано: <b>{payment.total_amount} ⭐️</b>\n"
-                    f"Зачислено на счет: <b>${amount_usd:.2f} USDT</b> 💎",
-                    parse_mode="HTML"
-                )
+                    db.commit()
 
-                await bot.send_message(
-                    ADMIN_USER_ID,
-                    f"💰 <b>Новое пополнение Stars!</b>\n\n"
-                    f"Пользователь: <code>{user_id}</code>\n"
-                    f"Получено: <b>{payment.total_amount} Stars ⭐️</b>\n"
-                    f"Зачислено клиенту: <b>${amount_usd:.2f} USDT</b>",
-                    parse_mode="HTML"
-                )
-        finally:
-            db.close()
+                    await message.answer(
+                        f"🌟 <b>Оплата Telegram Stars прошла успешно!</b>\n\n"
+                        f"Списано: <b>{payment.total_amount} ⭐️</b>\n"
+                        f"Зачислено на счет: <b>${amount_usd:.2f} USDT</b> 💎",
+                        parse_mode="HTML"
+                    )
+
+                    await bot.send_message(
+                        ADMIN_USER_ID,
+                        f"💰 <b>Новое пополнение Stars!</b>\n\n"
+                        f"Пользователь: <code>{user_id}</code>\n"
+                        f"Получено: <b>{payment.total_amount} Stars ⭐️</b>\n"
+                        f"Зачислено клиенту: <b>${amount_usd:.2f} USDT</b>",
+                        parse_mode="HTML"
+                    )
+            finally:
+                db.close()
+        except Exception as e:
+            logging.error(f"Ошибка при обработке Stars платежа: {e}")
 
 
 # --- 8. ХЕНДЛЕРЫ ТЕЛЕГРАМ БОТА ---
