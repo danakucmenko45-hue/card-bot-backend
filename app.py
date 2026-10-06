@@ -21,7 +21,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
-WEBAPP_URL = "https://almaz-shop-mini-app-59h1.vercel.app"
+WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
 ADMIN_USER_ID = 7334078827
 
 # Курс конвертации: Сколько Звёзд даётся за 1 USDT (50 Stars = 1.00$)
@@ -190,7 +190,7 @@ async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Счет не найден")
 
     invoice_info = res_data["result"]["items"][0]
-    status = invoice_info.get("status") # active / paid / expired
+    status = invoice_info.get("status")  # active / paid / expired
     amount_usd = float(invoice_info.get("amount", 0.0))
     str_invoice_id = str(data.invoice_id)
 
@@ -500,7 +500,7 @@ async def process_input_user_id(message: types.Message, state: FSMContext):
 
 
 @dp.message(AdminStates.waiting_for_amount)
-async def process_input_amount(message: types.Message, state: `FSMContext`): # type: ignore
+async def process_input_amount(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_USER_ID:
         return
 
