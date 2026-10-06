@@ -195,14 +195,11 @@ async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)
     str_invoice_id = str(data.invoice_id)
 
     if status == "paid":
-        # Проверяем, не был ли этот счет уже засчитан ранее
         tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == str_invoice_id).first()
         if not tx_check:
-            # Записываем транзакцию
             new_tx = TransactionDB(invoice_id=str_invoice_id, user_id=data.user_id, amount=amount_usd)
             db.add(new_tx)
 
-            # Начисляем баланс
             user = db.query(UserDB).filter(UserDB.user_id == data.user_id).first()
             if user:
                 user.balance += amount_usd
@@ -212,7 +209,6 @@ async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)
 
             db.commit()
 
-            # Уведомляем пользователя в боте
             try:
                 await bot.send_message(
                     data.user_id,
