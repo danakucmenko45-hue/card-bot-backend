@@ -20,6 +20,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
+XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6YTczNWRlODEtNDA3Ny00YTcyLWIzZDctNTMxZjFiYjllOTA2IiwiaWF0IjoxNzkxMzYyNjI0fQ.AX8BNZtkACpL7c9GN5L1eHQX5HCK8pKwTTZyJlK9NpU"  # <-- Вставь сюда токен от xRocket
 WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
 ADMIN_USER_ID = 7334078827
 
@@ -78,7 +79,6 @@ class AdminStates(StatesGroup):
 # --- 4. FASTAPI С LIFESPAN (WEBHOOK SETUP) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Устанавливаем вебхук в Telegram при запуске приложения
     try:
         await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
         logging.info(f"✅ Вебхук Telegram успешно установлен: {WEBHOOK_URL}")
@@ -87,7 +87,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Удаляем вебхук и закрываем сессию при выключении
     try:
         await bot.delete_webhook()
     except Exception:
@@ -135,7 +134,6 @@ async def root():
     return {"status": "ok", "message": "Almaz Shop Backend Active (Webhook Mode)"}
 
 
-# Эндпоинт для приема мгновенных апдейтов от Telegram
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
     try:
@@ -196,7 +194,84 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Моментальная проверка оплаты
+# Создание счета xRocket
+@app.post("/create-xrocket-invoice")
+async def create_xrocket_invoice(data: InvoiceRequest):
+    if data.amount < 1.0:
+        raise HTTPException(status_code=400, detail="Минимальная сумма пополнения через xRocket: $1.00")
+
+    import httpx
+    url = "https://pay.xrocket.launchpad.co/invoice"
+    headers = {"Rocket-Pay-Key": XROCKET_API_TOKEN}
+    payload = {
+        "amount": data.amount,
+        "currency": "USDT",
+        "payload": str(data.user_id),
+        "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            res_data = response.json()
+    except Exception as e:
+        logging.error(f"xRocket Connection Error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка соединения с xRocket")
+
+    if not res_data.get("success"):
+        raise HTTPException(status_code=500, detail="Ошибка API xRocket")
+
+    invoice_data = res_data.get("data", {})
+    return {
+        "pay_url": invoice_data.get("link"),
+        "invoice_id": str(invoice_data.get("id"))
+    }
+
+
+# Вебхук xRocket (автоматическое зачисление после оплаты)
+@app.post("/xrocket-webhook")
+async def xrocket_webhook(request: Request, db: Session = Depends(get_db)):
+    try:
+        update = await request.json()
+        
+        # Проверяем статус успешной оплаты в xRocket
+        if update.get("status") == "paid" or update.get("event") == "invoice_paid":
+            data = update.get("data", {})
+            invoice_id = str(data.get("id"))
+            user_id = int(data.get("payload", 0))
+            amount_usd = float(data.get("amount", 0.0))
+
+            if user_id > 0 and invoice_id:
+                tx_check = db.query(TransactionDB).filter(TransactionDB.invoice_id == invoice_id).first()
+                if not tx_check:
+                    new_tx = TransactionDB(invoice_id=invoice_id, user_id=user_id, amount=amount_usd)
+                    db.add(new_tx)
+
+                    user = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if user:
+                        user.balance += amount_usd
+                    else:
+                        user = UserDB(user_id=user_id, balance=amount_usd)
+                        db.add(user)
+
+                    db.commit()
+
+                    try:
+                        await bot.send_message(
+                            user_id,
+                            f"✅ <b>Баланс успешно пополнен через xRocket!</b>\nЗачислено: <b>${amount_usd:.2f} USDT</b> 💎",
+                            parse_mode="HTML"
+                        )
+                    except Exception as err:
+                        logging.warning(f"Ошибка отправки сообщения пользователю {user_id}: {err}")
+    except Exception as e:
+        logging.error(f"Ошибка в xRocket webhook: {e}")
+        return {"status": "error"}
+
+    return {"status": "ok"}
+
+
+# Моментальная проверка оплаты CryptoBot
 @app.post("/check-invoice")
 async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)):
     import httpx
