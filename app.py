@@ -19,11 +19,9 @@ from sqlalchemy import create_engine, Column, Float, String, BigInteger, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # --- 1. НАСТРОЙКИ ---
-# ЗАМЕНИТЕ ЭТОТ ТОКЕН НА НАСТОЯЩИЙ ТОКЕН ВАШЕГО БОТА ИЗ @BotFather, ЕСЛИ ЭТОТ ЧУЖОЙ!
 TELEGRAM_TOKEN = "8983015392:AAGP28M53_ZyGKNjPJPQ0-Un6IAyyxwCtPI"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
-# Токен xRocket
 XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6ZTIzMTdhNmMtNDI2YS00MmM4LTlkNDMtMjI0NTFlNTM1ZTc4IiwiaWF0IjoxNzkxMzc0MDIyfQ.47g9gGzL-OLkhF9IaOUbtQlGa5evUm7EvvlC9iFfOy8"
 XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"
 
@@ -152,7 +150,7 @@ async def get_balance(user_id: int, db: Session = Depends(get_db)):
     return {"balance": user.balance}
 
 
-# Создание счета CryptoBot
+# Создание счета CryptoBot (Исправлен актив на USDT)
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -161,7 +159,7 @@ async def create_invoice(data: InvoiceRequest):
     url = "https://pay.crypt.bot/api/createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN}
     payload = {
-        "asset": "USD",
+        "asset": "USDT",
         "amount": str(data.amount),
         "payload": str(data.user_id)
     }
@@ -175,6 +173,7 @@ async def create_invoice(data: InvoiceRequest):
         raise HTTPException(status_code=500, detail="Ошибка соединения с платежным шлюзом")
 
     if not res_data.get("ok"):
+        logging.error(f"CryptoBot API Error: {res_data}")
         raise HTTPException(status_code=500, detail="Ошибка API CryptoBot")
 
     result = res_data["result"]
@@ -187,7 +186,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (Функция названа правильно без дефисов)
+# Создание счета xRocket (Исправлена структура параметров суммы)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -203,8 +202,7 @@ async def create_xrocket_invoice(data: InvoiceRequest):
     
     payload = {
         "amount": float(data.amount),
-        "value": float(data.amount),
-        "currency": "USD",
+        "currency": "USDT",
         "priceCurrency": "USD",
         "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
         "returnUrl": WEBAPP_URL,
