@@ -188,7 +188,7 @@ async def create_invoice(data: InvoiceRequest):
 
 # Создание счета xRocket (Исправлены поля суммы для предотвращения ошибки Missing invoice amount)
 @app.post("/create-xrocket-invoice")
-async def create_xrocket-invoice(data: InvoiceRequest):
+async def create_xrocket_invoice(data: InvoiceRequest):
     pass  # заглушка для декоратора, ниже исправленная функция без дефиса в имени
 
 @app.post("/create-xrocket-invoice")
