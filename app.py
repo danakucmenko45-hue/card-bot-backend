@@ -150,7 +150,7 @@ async def get_balance(user_id: int, db: Session = Depends(get_db)):
     return {"balance": user.balance}
 
 
-# Создание счета CryptoBot (Исправлен актив на USDT)
+# Создание счета CryptoBot
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -186,13 +186,13 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (Исправлена структура параметров суммы)
+# Создание счета xRocket (С исправленным URL /invoice)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
         raise HTTPException(status_code=400, detail="Минимальная сумма пополнения через xRocket: $1.00")
 
-    url = "https://pay.api.xrocket.exchange/api/v1/invoices"
+    url = "https://pay.api.xrocket.exchange/api/v1/invoice"
     
     headers = {
         "Authorization": f"Bearer {XROCKET_API_TOKEN}",
