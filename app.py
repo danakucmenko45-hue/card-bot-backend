@@ -159,11 +159,11 @@ async def get_balance(user_id: int, db: Session = Depends(get_db)):
     return {"balance": user.balance}
 
 
-# Создание счета CryptoBot (Минимум $12)
+# Создание счета CryptoBot (Минимум $1)
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
-    if data.amount < 12.0:
-        raise HTTPException(status_code=400, detail="Минимальная сумма пополнения: $12")
+    if data.amount < 1.0:
+        raise HTTPException(status_code=400, detail="Минимальная сумма пополнения: $1.00")
 
     import httpx
     url = "https://pay.crypt.bot/api/createInvoice"
@@ -202,13 +202,17 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         raise HTTPException(status_code=400, detail="Минимальная сумма пополнения через xRocket: $1.00")
 
     import httpx
-    url = "https://pay.xrocket.launchpad.co/invoice"
-    headers = {"Rocket-Pay-Key": XROCKET_API_TOKEN}
+    url = "https://pay.xrocket.tg/invoice/create"
+    headers = {
+        "Rocket-Pay-Key": XROCKET_API_TOKEN,
+        "Content-Type": "application/json"
+    }
     payload = {
-        "amount": data.amount,
-        "currency": "USDT",
-        "payload": str(data.user_id),
-        "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}"
+        "amount": float(data.amount),
+        "currency": "USD",
+        "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
+        "returnUrl": WEBAPP_URL,
+        "payload": f'{{"user_id": {data.user_id}}}'
     }
 
     try:
@@ -219,13 +223,16 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         logging.error(f"xRocket Connection Error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка соединения с xRocket")
 
-    if not res_data.get("success"):
+    if not res_data.get("success") and not res_data.get("data"):
         raise HTTPException(status_code=500, detail="Ошибка API xRocket")
 
-    invoice_data = res_data.get("data", {})
+    invoice_data = res_data.get("data", res_data)
+    pay_url = invoice_data.get("link") or invoice_data.get("payUrl")
+    invoice_id = invoice_data.get("id")
+
     return {
-        "pay_url": invoice_data.get("link"),
-        "invoice_id": str(invoice_data.get("id"))
+        "pay_url": pay_url,
+        "invoice_id": str(invoice_id) if invoice_id else None
     }
 
 
@@ -236,7 +243,6 @@ async def xrocket_webhook(
     x_rocket_signature: str = Header(None, alias="X-Rocket-Signature"),
     db: Session = Depends(get_db)
 ):
-    # Проверка секретного токена вебхука (если xRocket передает его в заголовке)
     if XROCKET_WEBHOOK_SECRET and x_rocket_signature:
         if x_rocket_signature != XROCKET_WEBHOOK_SECRET:
             raise HTTPException(status_code=400, detail="Invalid signature")
@@ -244,11 +250,22 @@ async def xrocket_webhook(
     try:
         update = await request.json()
         
-        # Проверяем статус успешной оплаты в xRocket
         if update.get("status") == "paid" or update.get("event") == "invoice_paid":
             data = update.get("data", {})
             invoice_id = str(data.get("id"))
-            user_id = int(data.get("payload", 0))
+            
+            # Извлекаем user_id из payload (может прийти в виде строки JSON)
+            payload_raw = data.get("payload", "0")
+            user_id = 0
+            try:
+                import json
+                if isinstance(payload_raw, str) and payload_raw.startswith("{"):
+                    user_id = int(json.loads(payload_raw).get("user_id", 0))
+                else:
+                    user_id = int(payload_raw)
+            except Exception:
+                pass
+
             amount_usd = float(data.get("amount", 0.0))
 
             if user_id > 0 and invoice_id:
@@ -639,4 +656,4 @@ async def process_input_amount(message: types.Message, state: FSMContext):
         db.close()
 
     await state.clear()
-    await message.answer(f"✅ Баланс пользователя <code>{target_id}</code> изменен на **${amount:.2f} USDT**!", parse_mode="HTML")
+    await message.answer(f"✅ Баланс пользователя <code>{target_id}</code> изменен на **${amount:.2f} USDT**!", parse_mode="HTML") 
