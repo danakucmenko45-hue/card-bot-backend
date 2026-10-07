@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, Column, Float, String, BigInteger, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # --- 1. НАСТРОЙКИ ---
+# ЗАМЕНИТЕ ЭТОТ ТОКЕН НА НАСТОЯЩИЙ ТОКЕН ВАШЕГО БОТА ИЗ @BotFather, ЕСЛИ ЭТОТ ЧУЖОЙ!
 TELEGRAM_TOKEN = "8983015392:AAGP28M53_ZyGKNjPJPQ0-Un6IAyyxwCtPI"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
@@ -186,11 +187,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (Исправлены поля суммы для предотвращения ошибки Missing invoice amount)
-@app.post("/create-xrocket-invoice")
-async def create_xrocket_invoice(data: InvoiceRequest):
-    pass  # заглушка для декоратора, ниже исправленная функция без дефиса в имени
-
+# Создание счета xRocket (Функция названа правильно без дефисов)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -204,7 +201,6 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         "Content-Type": "application/json"
     }
     
-    # Передаем сумму во всех возможных вариациях ключей, которые требует xRocket API
     payload = {
         "amount": float(data.amount),
         "value": float(data.amount),
