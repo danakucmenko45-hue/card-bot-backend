@@ -186,7 +186,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (Возвращен корректный эндпоинт /invoices)
+# Создание счета xRocket (С исправленной передачей суммы для избежания Missing invoice amount)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -200,8 +200,10 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         "Content-Type": "application/json"
     }
     
+    # Передаем сумму одновременно во всех форматах (строка, число, разные ключи)
     payload = {
-        "amount": float(data.amount),
+        "amount": str(data.amount),
+        "value": str(data.amount),
         "currency": "USDT",
         "priceCurrency": "USD",
         "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
