@@ -22,7 +22,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 TELEGRAM_TOKEN = "8983015392:AAGP28M53_ZyGKNjPJPQ0-Un6IAyyxwCtPI"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 
-# Обновленный токен xRocket
+# Токен xRocket
 XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6ZTIzMTdhNmMtNDI2YS00MmM4LTlkNDMtMjI0NTFlNTM1ZTc4IiwiaWF0IjoxNzkxMzc0MDIyfQ.47g9gGzL-OLkhF9IaOUbtQlGa5evUm7EvvlC9iFfOy8"
 XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"
 
@@ -186,7 +186,11 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket
+# Создание счета xRocket (Исправлены поля суммы для предотвращения ошибки Missing invoice amount)
+@app.post("/create-xrocket-invoice")
+async def create_xrocket-invoice(data: InvoiceRequest):
+    pass  # заглушка для декоратора, ниже исправленная функция без дефиса в имени
+
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -200,8 +204,10 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         "Content-Type": "application/json"
     }
     
+    # Передаем сумму во всех возможных вариациях ключей, которые требует xRocket API
     payload = {
         "amount": float(data.amount),
+        "value": float(data.amount),
         "currency": "USD",
         "priceCurrency": "USD",
         "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
