@@ -20,8 +20,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
-XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6YTczNWRlODEtNDA3Ny00YTcyLWIzZDctNTMxZjFiYjllOTA2IiwiaWF0IjoxNzkxMzYyNjI0fQ.AX8BNZtkACpL7c9GN5L1eHQX5HCK8pKwTTZyJlK9NpU"  # <-- Токен от xRocket
-XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"  # <-- Webhook Token от xRocket
+XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6YTczNWRlODEtNDA3Ny00YTcyLWIzZDctNTMxZjFiYjllOTA2IiwiaWF0IjoxNzkxMzYyNjI0fQ.AX8BNZtkACpL7c9GN5L1eHQX5HCK8pKwTTZyJlK9NpU"
+XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"
 WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
 ADMIN_USER_ID = 7334078827
 
@@ -254,7 +254,6 @@ async def xrocket_webhook(
             data = update.get("data", {})
             invoice_id = str(data.get("id"))
             
-            # Извлекаем user_id из payload (может прийти в виде строки JSON)
             payload_raw = data.get("payload", "0")
             user_id = 0
             try:
@@ -656,4 +655,4 @@ async def process_input_amount(message: types.Message, state: FSMContext):
         db.close()
 
     await state.clear()
-    await message.answer(f"✅ Баланс пользователя <code>{target_id}</code> изменен на **${amount:.2f} USDT**!", parse_mode="HTML") 
+    await message.answer(f"✅ Баланс пользователя <code>{target_id}</code> изменен на **${amount:.2f} USDT**!", parse_mode="HTML")
