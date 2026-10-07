@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import httpx
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
@@ -25,7 +26,7 @@ XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52
 WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
 ADMIN_USER_ID = 7334078827
 
-# Твоя реальная ссылка с Render
+# Ссылка на ваше бэкенд-приложение на Render
 BACKEND_URL = "https://card-bot-backend.onrender.com"
 WEBHOOK_PATH = f"/webhook/telegram"
 WEBHOOK_URL = f"{BACKEND_URL}{WEBHOOK_PATH}"
@@ -81,11 +82,9 @@ class AdminStates(StatesGroup):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        # Пробуем установить вебхук с защитой от частых срабатываний
         await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
         logging.info(f"✅ Вебхук Telegram успешно установлен: {WEBHOOK_URL}")
     except Exception as e:
-        # Если Telegram выдает Flood Control, приложение не падает, а продолжает работать
         logging.warning(f"⚠️ Пропуск установки вебхука (возможно Flood Control): {e}")
 
     yield
@@ -167,7 +166,6 @@ async def create_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
         raise HTTPException(status_code=400, detail="Минимальная сумма пополнения: $1.00")
 
-    import httpx
     url = "https://pay.crypt.bot/api/createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN}
     payload = {
@@ -197,16 +195,15 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket
+# Создание счета xRocket (Исправленный эндпоинт и Bearer авторизация)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
         raise HTTPException(status_code=400, detail="Минимальная сумма пополнения через xRocket: $1.00")
 
-    import httpx
-    url = "https://pay.xrocket.tg/invoice/create"
+    url = "https://pay.api.xrocket.exchange/api/v1/invoices"
     headers = {
-        "Rocket-Pay-Key": XROCKET_API_TOKEN,
+        "Authorization": f"Bearer {XROCKET_API_TOKEN}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -225,12 +222,12 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         logging.error(f"xRocket Connection Error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка соединения с xRocket")
 
-    if not res_data.get("success") and not res_data.get("data"):
+    invoice_info = res_data.get("data")
+    if not invoice_info:
         raise HTTPException(status_code=500, detail=f"Ошибка API xRocket: {res_data}")
 
-    invoice_data = res_data.get("data", res_data)
-    pay_url = invoice_data.get("link") or invoice_data.get("payUrl")
-    invoice_id = invoice_data.get("id")
+    pay_url = invoice_info.get("link") or invoice_info.get("payUrl")
+    invoice_id = invoice_info.get("id")
 
     return {
         "pay_url": pay_url,
@@ -302,7 +299,6 @@ async def xrocket_webhook(
 # Моментальная проверка оплаты CryptoBot
 @app.post("/check-invoice")
 async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)):
-    import httpx
     url = "https://pay.crypt.bot/api/getInvoices"
     headers = {"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN}
     params = {"invoice_ids": data.invoice_id}
