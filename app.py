@@ -186,13 +186,13 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (С исправленным URL /invoice)
+# Создание счета xRocket (Возвращен корректный эндпоинт /invoices)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
         raise HTTPException(status_code=400, detail="Минимальная сумма пополнения через xRocket: $1.00")
 
-    url = "https://pay.api.xrocket.exchange/api/v1/invoice"
+    url = "https://pay.api.xrocket.exchange/api/v1/invoices"
     
     headers = {
         "Authorization": f"Bearer {XROCKET_API_TOKEN}",
