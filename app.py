@@ -186,7 +186,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (С исправлениями для priceCurrency и currency)
+# Создание счета xRocket (С исправлениями ключа value)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -200,9 +200,9 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         "Content-Type": "application/json"
     }
     
-    # Передаем обязательные currency и priceCurrency строками
     payload = {
         "amount": float(data.amount),
+        "value": float(data.amount),
         "currency": "USDT",
         "priceCurrency": "USD",
         "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
@@ -497,7 +497,7 @@ async def process_successful_payment(message: types.Message):
             logging.error(f"Ошибка при обработке Stars платежа: {e}")
 
 
-# --- 8. ХЕНДЛЕРЫ ТЕЛЕГРАМ БОТА (Чистый Almaz Shop) ---
+# --- 8. ХЕНДЛЕРЫ ТЕЛЕГРАМ БОТА ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
