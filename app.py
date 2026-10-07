@@ -20,7 +20,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
-XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6YTczNWRlODEtNDA3Ny00YTcyLWIzZDctNTMxZjFiYjllOTA2IiwiaWF0IjoxNzkxMzYyNjI0fQ.AX8BNZtkACpL7c9GN5L1eHQX5HCK8pKwTTZyJlK9NpU"  # <-- Вставь сюда токен от xRocket
+XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6YTczNWRlODEtNDA3Ny00YTcyLWIzZDctNTMxZjFiYjllOTA2IiwiaWF0IjoxNzkxMzYyNjI0fQ.AX8BNZtkACpL7c9GN5L1eHQX5HCK8pKwTTZyJlK9NpU"  # <-- Токен от xRocket
+XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"  # <-- Webhook Token от xRocket
 WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
 ADMIN_USER_ID = 7334078827
 
@@ -230,7 +231,16 @@ async def create_xrocket_invoice(data: InvoiceRequest):
 
 # Вебхук xRocket (автоматическое зачисление после оплаты)
 @app.post("/xrocket-webhook")
-async def xrocket_webhook(request: Request, db: Session = Depends(get_db)):
+async def xrocket_webhook(
+    request: Request, 
+    x_rocket_signature: str = Header(None, alias="X-Rocket-Signature"),
+    db: Session = Depends(get_db)
+):
+    # Проверка секретного токена вебхука (если xRocket передает его в заголовке)
+    if XROCKET_WEBHOOK_SECRET and x_rocket_signature:
+        if x_rocket_signature != XROCKET_WEBHOOK_SECRET:
+            raise HTTPException(status_code=400, detail="Invalid signature")
+
     try:
         update = await request.json()
         
@@ -265,7 +275,7 @@ async def xrocket_webhook(request: Request, db: Session = Depends(get_db)):
                     except Exception as err:
                         logging.warning(f"Ошибка отправки сообщения пользователю {user_id}: {err}")
     except Exception as e:
-        logging.error(f"Ошибка в xRocket webhook: {e}")
+        logging.error(f"Ошибка в xrocket webhook: {e}")
         return {"status": "error"}
 
     return {"status": "ok"}
