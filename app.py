@@ -23,7 +23,9 @@ TELEGRAM_TOKEN = "8983015392:AAGP28M53_ZyGKNjPJPQ0-Un6IAyyxwCtPI"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBIdCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6NmVhZTMwZjMtZWMyOS00NjUzLTlhYmQtNDBkY2QxNTI3NzFmIiwiaWF0IjoxNzkxMzY0NTg5fQ.OCgAtRCVdwX7BjX_0DCOOYZyOVztyG1sARaJlHWrJzE"
 XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"
-WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
+
+# Исправленная актуальная ссылка на ваше Mini App на Vercel (из скриншота)
+WEBAPP_URL = "https://almaz-shop-mini-app-qe3b.vercel.app"
 ADMIN_USER_ID = 7334078827
 
 BACKEND_URL = "https://card-bot-backend.onrender.com"
@@ -79,8 +81,8 @@ class AdminStates(StatesGroup):
 # --- 4. FASTAPI С LIFESPAN (ЗАЩИТА ОТ FLOOD CONTROL) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Убираем автоматический вызов setWebhook при старте, чтобы избежать ошибок 429 (Flood Control).
-    # Установите вебхук один раз через адресную строку браузера:
+    # Убран автоматический вызов setWebhook при старте для предотвращения ошибок 429 (Flood Control).
+    # Установите вебхук один раз через браузер (если еще не делали):
     # https://api.telegram.org/bot<TOKEN>/setWebhook?url=<BACKEND_URL>/webhook/telegram
     logging.info("🚀 Бот и FastAPI сервер запущены в режиме Webhook.")
     
@@ -188,7 +190,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (С поддержкой альтернативных вариантов заголовков авторизации для исправления 401)
+# Создание счета xRocket (С поддержкой альтернативных заголовков авторизации для исправления 401)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -196,7 +198,6 @@ async def create_xrocket_invoice(data: InvoiceRequest):
 
     url = "https://pay.api.xrocket.exchange/api/v1/invoices"
     
-    # Поддерживаем два основных варианта передачи токена xRocket для исключения ошибки 401 Unauthorized
     headers = {
         "Authorization": f"Bearer {XROCKET_API_TOKEN}",
         "Rocket-Pay-Key": XROCKET_API_TOKEN,
