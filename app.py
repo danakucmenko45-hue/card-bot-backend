@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, Column, Float, String, BigInteger, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # --- 1. НАСТРОЙКИ ---
-TELEGRAM_TOKEN = "8983015392:AAEP4SykIhK_TpwPLLzRNi-2-K4sEHMbRco"
+TELEGRAM_TOKEN = "8983015392:AAGP28M53_ZyGKNjPJPQ0-Un6IAyyxwCtPI"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
 XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6NmVhZTMwZjMtZWMyOS00NjUzLTlhYmQtNDBkY2QxNTI3NzFmIiwiaWF0IjoxNzkxMzY0NTg5fQ.OCgAtRCVdwX7BjX_0DCOOYZyOVztyG1sARaJlHWrJzE"
 XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"
