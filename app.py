@@ -21,10 +21,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAGP28M53_ZyGKNjPJPQ0-Un6IAyyxwCtPI"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
-XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6Y2NhZjdhODMtMzg5YS00Njg4LWIyZDItZTg3MGYzMGQ5OGRiIiwiaWF0IjoxNzkxMzY4NzQ5fQ.DvPXnhvmUJFlsDu8Rzm0DU57sPAKorSumIMRBM7Jm8g"
+XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBIdCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6NmVhZTMwZjMtZWMyOS00NjUzLTlhYmQtNDBkY2QxNTI3NzFmIiwiaWF0IjoxNzkxMzY0NTg5fQ.OCgAtRCVdwX7BjX_0DCOOYZyOVztyG1sARaJlHWrJzE"
 XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"
 
-# Исправленная актуальная ссылка на ваше Mini App на Vercel (из скриншота)
 WEBAPP_URL = "https://almaz-shop-mini-app-qe3b.vercel.app"
 ADMIN_USER_ID = 7334078827
 
@@ -78,16 +77,11 @@ class AdminStates(StatesGroup):
     waiting_for_amount = State()
 
 
-# --- 4. FASTAPI С LIFESPAN (ЗАЩИТА ОТ FLOOD CONTROL) ---
+# --- 4. FASTAPI С LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Убран автоматический вызов setWebhook при старте для предотвращения ошибок 429 (Flood Control).
-    # Установите вебхук один раз через браузер (если еще не делали):
-    # https://api.telegram.org/bot<TOKEN>/setWebhook?url=<BACKEND_URL>/webhook/telegram
     logging.info("🚀 Бот и FastAPI сервер запущены в режиме Webhook.")
-    
     yield
-
     await bot.session.close()
     logging.info("🛑 Сервер и бот остановлены.")
 
@@ -164,7 +158,7 @@ async def create_invoice(data: InvoiceRequest):
     url = "https://pay.crypt.bot/api/createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN}
     payload = {
-        "asset": "USDT",
+        "asset": "USD",
         "amount": str(data.amount),
         "payload": str(data.user_id)
     }
@@ -190,7 +184,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (С поддержкой альтернативных заголовков авторизации для исправления 401)
+# Создание счета xRocket (Исправлена валидация priceCurrency)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -207,6 +201,7 @@ async def create_xrocket_invoice(data: InvoiceRequest):
     payload = {
         "amount": float(data.amount),
         "currency": "USD",
+        "priceCurrency": "USD",  # Исправлено: добавлено обязательное поле для xRocket API
         "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
         "returnUrl": WEBAPP_URL,
         "payload": f'{{"user_id": {data.user_id}}}'
