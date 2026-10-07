@@ -26,12 +26,10 @@ XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52
 WEBAPP_URL = "https://almaz-shop-mini-app-47s66.vercel.app"
 ADMIN_USER_ID = 7334078827
 
-# Ссылка на ваше бэкенд-приложение на Render
 BACKEND_URL = "https://card-bot-backend.onrender.com"
 WEBHOOK_PATH = f"/webhook/telegram"
 WEBHOOK_URL = f"{BACKEND_URL}{WEBHOOK_PATH}"
 
-# Курс конвертации: Сколько Звёзд даётся за 1 USDT (50 Stars = 1.00$)
 STARS_PER_USDT = 50
 
 logging.basicConfig(level=logging.INFO)
@@ -78,21 +76,16 @@ class AdminStates(StatesGroup):
     waiting_for_amount = State()
 
 
-# --- 4. FASTAPI С LIFESPAN (БЕЗОПАСНАЯ УСТАНОВКА ВЕБХУКА) ---
+# --- 4. FASTAPI С LIFESPAN (ЗАЩИТА ОТ FLOOD CONTROL) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-        logging.info(f"✅ Вебхук Telegram успешно установлен: {WEBHOOK_URL}")
-    except Exception as e:
-        logging.warning(f"⚠️ Пропуск установки вебхука (возможно Flood Control): {e}")
-
+    # Убираем автоматический вызов setWebhook при старте, чтобы избежать ошибок 429 (Flood Control).
+    # Установите вебхук один раз через адресную строку браузера:
+    # https://api.telegram.org/bot<TOKEN>/setWebhook?url=<BACKEND_URL>/webhook/telegram
+    logging.info("🚀 Бот и FastAPI сервер запущены в режиме Webhook.")
+    
     yield
 
-    try:
-        await bot.delete_webhook()
-    except Exception:
-        pass
     await bot.session.close()
     logging.info("🛑 Сервер и бот остановлены.")
 
@@ -160,7 +153,7 @@ async def get_balance(user_id: int, db: Session = Depends(get_db)):
     return {"balance": user.balance}
 
 
-# Создание счета CryptoBot (Минимум $1)
+# Создание счета CryptoBot
 @app.post("/create-invoice")
 async def create_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -195,17 +188,21 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (Исправленный эндпоинт и Bearer авторизация)
+# Создание счета xRocket (С поддержкой альтернативных вариантов заголовков авторизации для исправления 401)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
         raise HTTPException(status_code=400, detail="Минимальная сумма пополнения через xRocket: $1.00")
 
     url = "https://pay.api.xrocket.exchange/api/v1/invoices"
+    
+    # Поддерживаем два основных варианта передачи токена xRocket для исключения ошибки 401 Unauthorized
     headers = {
         "Authorization": f"Bearer {XROCKET_API_TOKEN}",
+        "Rocket-Pay-Key": XROCKET_API_TOKEN,
         "Content-Type": "application/json"
     }
+    
     payload = {
         "amount": float(data.amount),
         "currency": "USD",
@@ -224,6 +221,7 @@ async def create_xrocket_invoice(data: InvoiceRequest):
 
     invoice_info = res_data.get("data")
     if not invoice_info:
+        logging.error(f"xRocket API Error Response: {res_data}")
         raise HTTPException(status_code=500, detail=f"Ошибка API xRocket: {res_data}")
 
     pay_url = invoice_info.get("link") or invoice_info.get("payUrl")
@@ -235,7 +233,7 @@ async def create_xrocket_invoice(data: InvoiceRequest):
     }
 
 
-# Вебхук xRocket (автоматическое зачисление после оплаты)
+# Вебхук xRocket
 @app.post("/xrocket-webhook")
 async def xrocket_webhook(
     request: Request, 
@@ -296,7 +294,7 @@ async def xrocket_webhook(
     return {"status": "ok"}
 
 
-# Моментальная проверка оплаты CryptoBot
+# Проверка оплаты CryptoBot
 @app.post("/check-invoice")
 async def check_invoice(data: CheckInvoiceRequest, db: Session = Depends(get_db)):
     url = "https://pay.crypt.bot/api/getInvoices"
@@ -428,7 +426,7 @@ async def crypto_webhook(
     return {"ok": True}
 
 
-# Изменение баланса через админку API
+# Админский эндпоинт баланса
 @app.post("/admin/set-balance")
 async def admin_set_balance(data: AdminActionRequest, db: Session = Depends(get_db)):
     if data.admin_id != ADMIN_USER_ID:
