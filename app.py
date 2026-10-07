@@ -21,7 +21,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 # --- 1. НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8983015392:AAGP28M53_ZyGKNjPJPQ0-Un6IAyyxwCtPI"
 CRYPTO_BOT_TOKEN = "641830:AApeUWiszQ46wcy6juCxVp5F4unJUqZfm9I"
-XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6Y2NhZjdhODMtMzg5YS00Njg4LWIyZDItZTg3MGYzMGQ5OGRiIiwiaWF0IjoxNzkxMzY4NzQ5fQ.DvPXnhvmUJFlsDu8Rzm0DU57sPAKorSumIMRBM7Jm8g"
+
+# Обновленный токен xRocket
+XROCKET_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwMzkzOSIsImp0aSI6ImFwcDozMDM5Mzk6ZTIzMTdhNmMtNDI2YS00MmM4LTlkNDMtMjI0NTFlNTM1ZTc4IiwiaWF0IjoxNzkxMzc0MDIyfQ.47g9gGzL-OLkhF9IaOUbtQlGa5evUm7EvvlC9iFfOy8"
 XROCKET_WEBHOOK_SECRET = "a26896906c7ff5c6ce7aeff88c5383aa08555e7902561b78152c52174964d831"
 
 WEBAPP_URL = "https://almaz-shop-mini-app-qe3b.vercel.app"
@@ -184,7 +186,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (Исправлена валидация priceCurrency)
+# Создание счета xRocket
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -201,7 +203,7 @@ async def create_xrocket_invoice(data: InvoiceRequest):
     payload = {
         "amount": float(data.amount),
         "currency": "USD",
-        "priceCurrency": "USD",  # Исправлено: добавлено обязательное поле для xRocket API
+        "priceCurrency": "USD",
         "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
         "returnUrl": WEBAPP_URL,
         "payload": f'{{"user_id": {data.user_id}}}'
