@@ -186,7 +186,7 @@ async def create_invoice(data: InvoiceRequest):
     }
 
 
-# Создание счета xRocket (С исправленной передачей суммы для избежания Missing invoice amount)
+# Создание счета xRocket (С исправленной структурой полей SDK)
 @app.post("/create-xrocket-invoice")
 async def create_xrocket_invoice(data: InvoiceRequest):
     if data.amount < 1.0:
@@ -200,13 +200,13 @@ async def create_xrocket_invoice(data: InvoiceRequest):
         "Content-Type": "application/json"
     }
     
-    # Передаем сумму одновременно во всех форматах (строка, число, разные ключи)
+    # xRocket Pay API требует числовой amount и корректную валюту приложения (например, TONCOIN или USDT)
     payload = {
-        "amount": str(data.amount),
-        "value": str(data.amount),
-        "currency": "USDT",
-        "priceCurrency": "USD",
+        "amount": float(data.amount),
+        "currency": "TONCOIN",
         "description": f"Пополнение баланса Almaz Shop на ${data.amount:.2f}",
+        "numPayments": 1,
+        "expiredIn": 3600,
         "returnUrl": WEBAPP_URL,
         "payload": f'{{"user_id": {data.user_id}}}'
     }
